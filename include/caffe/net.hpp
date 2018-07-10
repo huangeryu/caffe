@@ -21,6 +21,9 @@ namespace caffe {
  * TODO(dox): more thorough description.
  */
 template <typename Dtype>
+class Layer;
+
+template <typename Dtype>
 class Net {
  public:
   explicit Net(const NetParameter& param);

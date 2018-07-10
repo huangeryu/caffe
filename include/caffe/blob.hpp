@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
-
+#include "caffe/util/math_functions.hpp"
 #include "caffe/common.hpp"
 #include "caffe/proto/caffe.pb.h"
 #include "caffe/syncedmem.hpp"
@@ -216,6 +216,14 @@ class Blob {
     return diff_;
   }
 
+  inline int has_nan() const {
+    const Dtype *data = this->cpu_data();
+    for(int i = 0;i<count_;i++){
+      if(isnan(data[i]))
+        return i;
+    }
+    return 0;
+  }
   const Dtype* cpu_data() const;
   void set_cpu_data(Dtype* data);
   const int* gpu_shape() const;

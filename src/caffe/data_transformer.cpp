@@ -40,23 +40,27 @@ DataTransformer<Dtype>::DataTransformer(const TransformationParameter& param,
 
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const Datum& datum,
-                                       Dtype* transformed_data) {
-  const string& data = datum.data();
-  const int datum_channels = datum.channels();
+                                       Dtype* transformed_data,bool islabel) {
+  const string& data = islabel?datum.label_data():datum.data();
+  const int datum_channels = islabel?1:datum.channels();
   const int datum_height = datum.height();
   const int datum_width = datum.width();
 
   const int crop_size = param_.crop_size();
   const Dtype scale = param_.scale();
   const bool do_mirror = param_.mirror() && Rand(2);
-  const bool has_mean_file = param_.has_mean_file();
+  bool has_mean_file = param_.has_mean_file();
   const bool has_uint8 = data.size() > 0;
-  const bool has_mean_values = mean_values_.size() > 0;
+  bool has_mean_values = mean_values_.size() > 0;
 
   CHECK_GT(datum_channels, 0);
   CHECK_GE(datum_height, crop_size);
   CHECK_GE(datum_width, crop_size);
-
+  if(islabel)
+  {
+    has_mean_file=false;
+    has_mean_values=false;
+  }
   Dtype* mean = NULL;
   if (has_mean_file) {
     CHECK_EQ(datum_channels, data_mean_.channels());
@@ -129,7 +133,7 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
 
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const Datum& datum,
-                                       Blob<Dtype>* transformed_blob) {
+                                       Blob<Dtype>* transformed_blob,bool islabel) {
   // If datum is encoded, decode and transform the cv::image.
   if (datum.encoded()) {
 #ifdef USE_OPENCV
@@ -138,12 +142,12 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
     cv::Mat cv_img;
     if (param_.force_color() || param_.force_gray()) {
     // If force_color then decode in color otherwise decode in gray.
-      cv_img = DecodeDatumToCVMat(datum, param_.force_color());
+      cv_img = DecodeDatumToCVMat(datum, param_.force_color(),islabel);
     } else {
-      cv_img = DecodeDatumToCVMatNative(datum);
+      cv_img = DecodeDatumToCVMatNative(datum,islabel);
     }
     // Transform the cv::image into blob.
-    return Transform(cv_img, transformed_blob);
+    return Transform(cv_img, transformed_blob,islabel);
 #else
     LOG(FATAL) << "Encoded datum requires OpenCV; compile with USE_OPENCV.";
 #endif  // USE_OPENCV
@@ -163,8 +167,7 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
   const int height = transformed_blob->height();
   const int width = transformed_blob->width();
   const int num = transformed_blob->num();
-
-  CHECK_EQ(channels, datum_channels);
+  CHECK_EQ(channels,islabel?1:datum_channels);
   CHECK_LE(height, datum_height);
   CHECK_LE(width, datum_width);
   CHECK_GE(num, 1);
@@ -178,7 +181,7 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
   }
 
   Dtype* transformed_data = transformed_blob->mutable_cpu_data();
-  Transform(datum, transformed_data);
+  Transform(datum, transformed_data,islabel);
 }
 
 template<typename Dtype>
@@ -224,7 +227,7 @@ void DataTransformer<Dtype>::Transform(const vector<cv::Mat> & mat_vector,
 
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
-                                       Blob<Dtype>* transformed_blob) {
+                                       Blob<Dtype>* transformed_blob,bool islabel) {
   const int crop_size = param_.crop_size();
   const int img_channels = cv_img.channels();
   const int img_height = cv_img.rows;
@@ -245,14 +248,19 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
 
   const Dtype scale = param_.scale();
   const bool do_mirror = param_.mirror() && Rand(2);
-  const bool has_mean_file = param_.has_mean_file();
-  const bool has_mean_values = mean_values_.size() > 0;
+  bool has_mean_file = param_.has_mean_file();
+  bool has_mean_values = mean_values_.size() > 0;
 
   CHECK_GT(img_channels, 0);
   CHECK_GE(img_height, crop_size);
   CHECK_GE(img_width, crop_size);
 
   Dtype* mean = NULL;
+  if(islabel)
+  {
+    has_mean_file=false;
+    has_mean_values=false;
+  }
   if (has_mean_file) {
     CHECK_EQ(img_channels, data_mean_.channels());
     CHECK_EQ(img_height, data_mean_.height());

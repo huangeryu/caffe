@@ -33,16 +33,19 @@ message Datum {
   optional int32 width = 3;
   // the actual image data, in bytes
   optional bytes data = 4;
-  optional int32 label = 5;
+  optional int32 label=9;
+  //label shape
+  optional bytes label_data = 5;
   // Optionally, the datum could also hold float data.
   repeated float float_data = 6;
+  repeated float float_label_data=7;
   // If true data contains an encoded image that need to be decoded
-  optional bool encoded = 7 [default = false];
+  optional bool encoded = 8 [default = false];
 }
 
 message FillerParameter {
   // The filler type.
-  optional string type = 1 [default = 'constant'];
+  optional string type = 1 [default = 'xavier'];
   optional float value = 2 [default = 0]; // the value in constant filler
   optional float min = 3 [default = 0]; // the min value in uniform filler
   optional float max = 4 [default = 1]; // the max value in uniform filler
@@ -420,8 +423,35 @@ message LayerParameter {
   optional ThresholdParameter threshold_param = 128;
   optional TileParameter tile_param = 138;
   optional WindowDataParameter window_data_param = 129;
+  optional RescaleParameter rescale_param=148;
+  optional CustomEuclideLossParameter customeuclideloss_param=149;
+  optional CustomSoftMaxLossParameter customsoftmaxloss_param=150;
+  optional QuantizeParamter quantize_param=151;
+}
+message QuantizeParamter
+{
+  //Specify receptive field 
+  repeated uint32 rf=1 [packed = true];
+  optional float scale=2 [default=1];
+}
+message CustomEuclideLossParameter
+{
+  optional float loss_scale=1 [default=1];
+  //Specify top stage
+  optional int32 stage=2;
 }
 
+message CustomSoftMaxLossParameter
+{
+  optional float loss_scale=1 [default=1];
+  // Specify stage
+  optional int32 stage=2;
+}
+
+message RescaleParameter
+{
+  optional uint32 rf=1;
+}
 // Message that stores parameters used to apply transformation
 // to the data layer's data
 message TransformationParameter {

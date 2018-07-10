@@ -35,25 +35,25 @@ void DataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
 
   // Use data_transformer to infer the expected blob shape from datum.
   vector<int> top_shape = this->data_transformer_->InferBlobShape(datum);
+  vector<int> top_shape_label(top_shape);
+  //set label image have one channel
+  top_shape_label[1]=1;
   this->transformed_data_.Reshape(top_shape);
+  this->transformed_label_.Reshape(top_shape_label);
   // Reshape top[0] and prefetch_data according to the batch_size.
   top_shape[0] = batch_size;
+  top_shape_label[0]=batch_size;
   top[0]->Reshape(top_shape);
-  for (int i = 0; i < this->prefetch_.size(); ++i) {
+  top[1]->Reshape(top_shape_label);
+  for (int i = 0; i < this->prefetch_.size(); ++i)
+  {
     this->prefetch_[i]->data_.Reshape(top_shape);
+    this->prefetch_[i]->label_.Reshape(top_shape_label);
   }
   LOG_IF(INFO, Caffe::root_solver())
       << "output data size: " << top[0]->num() << ","
       << top[0]->channels() << "," << top[0]->height() << ","
       << top[0]->width();
-  // label
-  if (this->output_labels_) {
-    vector<int> label_shape(1, batch_size);
-    top[1]->Reshape(label_shape);
-    for (int i = 0; i < this->prefetch_.size(); ++i) {
-      this->prefetch_[i]->label_.Reshape(label_shape);
-    }
-  }
 }
 
 template <typename Dtype>
@@ -104,22 +104,27 @@ void DataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
       // Use data_transformer to infer the expected blob shape from datum.
       vector<int> top_shape = this->data_transformer_->InferBlobShape(datum);
       this->transformed_data_.Reshape(top_shape);
+      vector<int> top_shape_label(top_shape);
+      top_shape_label[1]=1;
+      this->transformed_label_.Reshape(top_shape_label);
       // Reshape batch according to the batch_size.
       top_shape[0] = batch_size;
+      top_shape_label[0]=batch_size;
       batch->data_.Reshape(top_shape);
+      batch->label_.Reshape(top_shape_label);
     }
 
     // Apply data transformations (mirror, scale, crop...)
     timer.Start();
     int offset = batch->data_.offset(item_id);
+    int offset_label=batch->label_.offset(item_id);
     Dtype* top_data = batch->data_.mutable_cpu_data();
+    Dtype* top_label=batch->label_.mutable_cpu_data();
     this->transformed_data_.set_cpu_data(top_data + offset);
+    this->transformed_label_.set_cpu_data(top_label+offset_label);
     this->data_transformer_->Transform(datum, &(this->transformed_data_));
+    this->data_transformer_->Transform(datum,&(this->transformed_label_),true);
     // Copy label.
-    if (this->output_labels_) {
-      Dtype* top_label = batch->label_.mutable_cpu_data();
-      top_label[item_id] = datum.label();
-    }
     trans_time += timer.MicroSeconds();
     Next();
   }

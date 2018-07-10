@@ -33,7 +33,10 @@ class PoolingLayer : public Layer<Dtype> {
     return (this->layer_param_.pooling_param().pool() ==
             PoolingParameter_PoolMethod_MAX) ? 2 : 1;
   }
-
+  virtual inline DiagonalAffineMap<Dtype> coord_map()
+  {
+      return FilterMap<Dtype>(kernel_h_, kernel_w_,stride_h_, stride_w_,pad_h_, pad_w_).inv();
+  }
  protected:
   virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
       const vector<Blob<Dtype>*>& top);

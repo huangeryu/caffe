@@ -10,7 +10,9 @@
 #include "caffe/layer_factory.hpp"
 #include "caffe/proto/caffe.pb.h"
 #include "caffe/util/math_functions.hpp"
-
+#include "caffe/util/coords.hpp"
+#include "caffe/net.hpp"
+#include "caffe/util/io.hpp"
 /**
  Forward declare boost::thread instead of including boost/thread.hpp
  to avoid a boost/NVCC issues (#1009, #1010) on OSX.
@@ -19,6 +21,8 @@ namespace boost { class mutex; }
 
 namespace caffe {
 
+template<typename Dtype>
+class Net;
 /**
  * @brief An interface for the units of computation which can be composed into a
  *        Net.
@@ -38,7 +42,7 @@ class Layer {
    * layer.
    */
   explicit Layer(const LayerParameter& param)
-    : layer_param_(param) {
+    : layer_param_(param),net_(NULL) {
       // Set phase and copy blobs (if there are any).
       phase_ = param.phase();
       if (layer_param_.blobs_size() > 0) {
@@ -269,6 +273,10 @@ class Layer {
     return true;
   }
 
+  virtual inline DiagonalAffineMap<Dtype> coord_map()
+  {
+    return DiagonalAffineMap<Dtype>::identity(2);
+  }
   /**
    * @brief Specifies whether the layer should compute gradients w.r.t. a
    *        parameter at a particular index given by param_id.
@@ -291,6 +299,13 @@ class Layer {
     param_propagate_down_[param_id] = value;
   }
 
+  inline void set_net(Net<Dtype>* net){net_=net;}
+  virtual void WriteBlobToFile(const Blob<Dtype>& blob)
+  {
+    BlobProto blobproto;
+    blob.ToProto(&blobproto,false);
+    WriteProtoToTextFile(blobproto,this->type());
+  }
 
  protected:
   /** The protobuf that stores the layer parameters */
@@ -305,6 +320,8 @@ class Layer {
   /** The vector that indicates whether each top blob has a non-zero weight in
    *  the objective function. */
   vector<Dtype> loss_;
+
+  Net<Dtype>* net_;
 
   /** @brief Using the CPU device, compute the layer output. */
   virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,

@@ -6,7 +6,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-
+#include <algorithm>
 #include "caffe/data_transformer.hpp"
 #include "caffe/layers/base_data_layer.hpp"
 #include "caffe/layers/image_data_layer.hpp"
@@ -35,15 +35,13 @@ void ImageDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
       "new_height and new_width to be set at the same time.";
   // Read the file with filenames and labels
   const string& source = this->layer_param_.image_data_param().source();
-  LOG(INFO) << "Opening file " << source;
-  std::ifstream infile(source.c_str());
-  string line;
-  size_t pos;
-  int label;
-  while (std::getline(infile, line)) {
-    pos = line.find_last_of(' ');
-    label = atoi(line.substr(pos + 1).c_str());
-    lines_.push_back(std::make_pair(line.substr(0, pos), label));
+  LOG(INFO) << "Opening file " << root_folder+source;
+  std::ifstream infile((root_folder+source).c_str());
+  string img_file;
+  string label_file;
+  while (infile>>img_file>>label_file) 
+  {
+    lines_.push_back(std::make_pair(img_file, label_file));
   }
 
   CHECK(!lines_.empty()) << "File is empty";
@@ -72,30 +70,35 @@ void ImageDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
     lines_id_ = skip;
   }
   // Read an image, and use it to initialize the top blob.
-  cv::Mat cv_img = ReadImageToCVMat(root_folder + lines_[lines_id_].first,
+  cv::Mat cv_img = ReadImageToCVMat(lines_[lines_id_].first,
                                     new_height, new_width, is_color);
+  cv::Mat cv_label=ReadImageToCVMat(lines_[lines_id_].second,new_height,new_width,false);
   CHECK(cv_img.data) << "Could not load " << lines_[lines_id_].first;
+  CHECK(cv_label.data)<<"Could not load "<<lines_[lines_id_].second;
+  CHECK(cv_label.channels()==1)<<"label image channel should be 1";
+
   // Use data_transformer to infer the expected blob shape from a cv_image.
   vector<int> top_shape = this->data_transformer_->InferBlobShape(cv_img);
+  vector<int> label_shape=this->data_transformer_->InferBlobShape(cv_label);
   this->transformed_data_.Reshape(top_shape);
+  this->transformed_label_.Reshape(label_shape);
   // Reshape prefetch_data and top[0] according to the batch_size.
   const int batch_size = this->layer_param_.image_data_param().batch_size();
   CHECK_GT(batch_size, 0) << "Positive batch size required";
   top_shape[0] = batch_size;
+  label_shape[0]=batch_size;
   for (int i = 0; i < this->prefetch_.size(); ++i) {
     this->prefetch_[i]->data_.Reshape(top_shape);
+    this->prefetch_[i]->label_.Reshape(label_shape);
   }
   top[0]->Reshape(top_shape);
-
+  top[1]->Reshape(label_shape);
   LOG(INFO) << "output data size: " << top[0]->num() << ","
       << top[0]->channels() << "," << top[0]->height() << ","
       << top[0]->width();
-  // label
-  vector<int> label_shape(1, batch_size);
-  top[1]->Reshape(label_shape);
-  for (int i = 0; i < this->prefetch_.size(); ++i) {
-    this->prefetch_[i]->label_.Reshape(label_shape);
-  }
+  LOG(INFO) << "output label size: " << top[1]->num() << ","
+      << top[1]->channels() << "," << top[1]->height() << ","
+      << top[1]->width();
 }
 
 template <typename Dtype>
@@ -114,7 +117,9 @@ void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   double trans_time = 0;
   CPUTimer timer;
   CHECK(batch->data_.count());
+  CHECK(batch->label_.count());
   CHECK(this->transformed_data_.count());
+  CHECK(this->transformed_label_.count());
   ImageDataParameter image_data_param = this->layer_param_.image_data_param();
   const int batch_size = image_data_param.batch_size();
   const int new_height = image_data_param.new_height();
@@ -124,15 +129,22 @@ void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 
   // Reshape according to the first image of each batch
   // on single input batches allows for inputs of varying dimension.
-  cv::Mat cv_img = ReadImageToCVMat(root_folder + lines_[lines_id_].first,
+  cv::Mat cv_img = ReadImageToCVMat(lines_[lines_id_].first,
       new_height, new_width, is_color);
+  cv::Mat cv_label = ReadImageToCVMat(lines_[lines_id_].first,new_height,new_width,0);
   CHECK(cv_img.data) << "Could not load " << lines_[lines_id_].first;
+  CHECK(cv_label.data)<<"Could not load"<<lines_[lines_id_].second;
   // Use data_transformer to infer the expected blob shape from a cv_img.
   vector<int> top_shape = this->data_transformer_->InferBlobShape(cv_img);
+  vector<int> label_shape=this->data_transformer_->InferBlobShape(cv_label);
   this->transformed_data_.Reshape(top_shape);
+  this->transformed_label_.Reshape(label_shape);
+  CHECK(this->transformed_data_.count(2)==this->transformed_label_.count(2))<<lines_[lines_id_].first<<" data.count!=label.count";
   // Reshape batch according to the batch_size.
   top_shape[0] = batch_size;
+  label_shape[0]=batch_size;
   batch->data_.Reshape(top_shape);
+  batch->label_.Reshape(label_shape);
 
   Dtype* prefetch_data = batch->data_.mutable_cpu_data();
   Dtype* prefetch_label = batch->label_.mutable_cpu_data();
@@ -143,18 +155,23 @@ void ImageDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
     // get a blob
     timer.Start();
     CHECK_GT(lines_size, lines_id_);
-    cv::Mat cv_img = ReadImageToCVMat(root_folder + lines_[lines_id_].first,
+    cv::Mat cv_img = ReadImageToCVMat(lines_[lines_id_].first,
         new_height, new_width, is_color);
+     cv::Mat cv_label = ReadImageToCVMat(lines_[lines_id_].second,new_height,new_width,0);
     CHECK(cv_img.data) << "Could not load " << lines_[lines_id_].first;
+    CHECK(cv_label.data)<<"Could not load"<<lines_[lines_id_].second;
     read_time += timer.MicroSeconds();
     timer.Start();
     // Apply transformations (mirror, crop...) to the image
     int offset = batch->data_.offset(item_id);
+    int offset_label=batch->label_.offset(item_id);
     this->transformed_data_.set_cpu_data(prefetch_data + offset);
+    this->transformed_label_.set_cpu_data(prefetch_label+offset_label);
     this->data_transformer_->Transform(cv_img, &(this->transformed_data_));
+    this->data_transformer_->Transform(cv_label,&(this->transformed_label_),true);
+    //cv::Mat temp(cv_label.rows,cv_label.cols,CV_32FC1,prefetch_label+offset_label);
+    //cv_label.convertTo(temp,CV_32F);
     trans_time += timer.MicroSeconds();
-
-    prefetch_label[item_id] = lines_[lines_id_].second;
     // go to the next iter
     lines_id_++;
     if (lines_id_ >= lines_size) {
