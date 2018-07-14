@@ -1,3 +1,4 @@
+#include<cfloat>
 #include "caffe/layers/custom_softmax_loss_layer.hpp"
 
 namespace caffe
@@ -28,7 +29,7 @@ __global__ void custom_softmax_forward_gpu(int threads,int area,
         int offset=index%area;
         Dtype alpha=bata[channel];
         if(blabel[index]>Dtype(0.01))alpha=1-alpha;
-        out[index]=alpha*log(data[channel*area+offset]);
+        out[index]=alpha*log(std::max(data[channel*area+offset],Dtype(FLT_MIN)));
     }
 }
 template<typename Dtype>
@@ -60,7 +61,7 @@ void CustomSoftMaxLossLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bott
                     area,alpha,temp,data,temp);
     Dtype loss=Dtype(0.);
     caffe_gpu_asum(bottom[1]->count(),temp,&loss);
-    top[0]->mutable_gpu_data()[0]=this->scale_*loss/batch_size;
+    top[0]->mutable_cpu_data()[0]=this->scale_*loss/batch_size;
     cudaFree(temp);
     cudaFree(alpha);
 }
