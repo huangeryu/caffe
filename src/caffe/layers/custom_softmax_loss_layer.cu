@@ -20,16 +20,18 @@ __global__ void comput_alpha(int threads,int stage,const Dtype* in,Dtype* sums)
     }
 }
 template<typename Dtype>
-__global__ void custom_softmax_forward_gpu(int threads,int area,
-            const Dtype* bata,const Dtype* blabel,const Dtype* data,Dtype* out)
+__global__ void custom_softmax_forward_gpu(int threads,int area,int stage,
+            const Dtype* bata,const Dtype* data,const Dtype* label,Dtype* out)
 {
     CUDA_KERNEL_LOOP(index,threads)
     {
         int channel=index/area;
         int offset=index%area;
         Dtype alpha=bata[channel];
-        if(blabel[index]>Dtype(0.01))alpha=1-alpha;
-        out[index]=alpha*log(std::max(data[channel*area+offset],Dtype(FLT_MIN)));
+        int k=label[index]>=stage?0:label[index];
+        if(k>0)alpha=1-alpha;
+        int i=channel*area*stage+k*area+offset;
+        out[index]=alpha*log(std::max(data[i],Dtype(FLT_MIN)));
     }
 }
 template<typename Dtype>
@@ -58,7 +60,7 @@ void CustomSoftMaxLossLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bott
     state=cudaMemcpy(alpha,&(this->bate_[0]),batch_size*sizeof(Dtype),cudaMemcpyHostToDevice);
     if(state!=cudaSuccess)LOG(FATAL)<<"cudaMemcpy fail!";
     custom_softmax_forward_gpu<<<CAFFE_GET_BLOCKS(bottom[1]->count()),CAFFE_CUDA_NUM_THREADS>>>(bottom[1]->count(),
-                    area,alpha,temp,data,temp);
+                    area,this->stage_,alpha,data,label,temp);
     Dtype loss=Dtype(0.);
     caffe_gpu_asum(bottom[1]->count(),temp,&loss);
     top[0]->mutable_cpu_data()[0]=this->scale_*loss/batch_size;
